@@ -1,0 +1,17 @@
+.{
+    .name = .adventofcode_2025,
+    .version = "0.0.0",
+    .dependencies = .{
+        .libadvent = .{
+            .url = "git+https://github.com/amnn/libadvent-zig?ref=main#f3a4746b1b5f77fb896f84e8a87de4177a9b9e1e",
+            .hash = "libadvent-0.0.1-VJ_aPec1AABQqjnVtMBCgdaKhULa4GMVQnrVW7rKwmmc",
+        },
+    },
+    .fingerprint = 0x4a4dddd9b1e1aa6,
+    .minimum_zig_version = "0.15.2",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
