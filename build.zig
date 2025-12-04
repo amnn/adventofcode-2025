@@ -4,9 +4,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib = b.dependency("libadvent", .{});
+    const lib = b.dependency("libadvent", .{}).module("libadvent");
 
-    for (1..2) |i| {
+    const step_tests = b.step("test", "Run tests");
+
+    for (1..3) |i| {
         const name = std.fmt.allocPrint(b.allocator, "day{d:02}", .{i}) catch unreachable;
         const file = std.fmt.allocPrint(b.allocator, "src/day/{d:02}.zig", .{i}) catch unreachable;
         const desc = std.fmt.allocPrint(b.allocator, "Run solution for Day {d}", .{i}) catch unreachable;
@@ -16,7 +18,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "libadvent", .module = lib.module("libadvent") },
+                .{ .name = "libadvent", .module = lib },
             },
         });
 
@@ -32,6 +34,13 @@ pub fn build(b: *std.Build) void {
 
         const step = b.step(name, desc);
         step.dependOn(&run.step);
+
+        const tests = b.addTest(.{
+            .root_module = mod,
+        });
+
+        const run_tests = b.addRunArtifact(tests);
+        step_tests.dependOn(&run_tests.step);
 
         if (b.args) |args| {
             run.addArgs(args);
