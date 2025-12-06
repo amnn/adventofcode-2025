@@ -53,6 +53,8 @@ pub fn main() !void {
 
     // Read the ranges.
     var ranges: ArrayList(Range) = .init(fba.allocator());
+    defer ranges.deinit();
+
     while (Range.parse(stdin)) |r| {
         try ranges.append(r);
         try scan.prefix(stdin, "\n");

@@ -26,6 +26,8 @@ pub fn main() !void {
     var fba = std.heap.FixedBufferAllocator.init(&buf);
 
     var g = try grid.read(stdin, fba.allocator());
+    defer g.deinit(fba.allocator());
+
     var removed: usize = 0;
     while (true) {
         const round = try removeRolls(&g);
