@@ -3,8 +3,8 @@
     .version = "0.0.0",
     .dependencies = .{
         .libadvent = .{
-            .url = "git+https://github.com/amnn/libadvent-zig?ref=main#a31f38d7455ac684ab3e9da9d3242e7ef568857b",
-            .hash = "libadvent-0.0.1-VJ_aPd1AAACuevrPc1NkxK8KmYth3CqpFd1ss7EzipWY",
+            .url = "git+https://github.com/amnn/libadvent-zig?ref=main#76426f6828105cf8f6e9e8b21a2ddc8c7526033b",
+            .hash = "libadvent-0.0.1-VJ_aPWJCAAA6N6Bs17-r3NmscWSGFXGkXBA60SBhZzhf",
         },
     },
     .fingerprint = 0x4a4dddd9b1e1aa6,
