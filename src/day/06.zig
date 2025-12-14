@@ -41,7 +41,7 @@ pub fn main() !void {
 }
 
 fn part1(r: *Reader, alloc: Allocator) !void {
-    var rands: ArrayList([]u64) = try .initCapacity(alloc, 0);
+    var rands: ArrayList([]u64) = .init(alloc);
     defer rands.deinit();
     defer for (rands.items) |item| alloc.free(item);
 
@@ -81,7 +81,7 @@ fn part1(r: *Reader, alloc: Allocator) !void {
 }
 
 fn part2(r: *Reader, alloc: Allocator) !void {
-    var lines: ArrayList([]u8) = try .initCapacity(alloc, 0);
+    var lines: ArrayList([]u8) = .init(alloc);
     defer lines.deinit();
     defer for (lines.items) |item| alloc.free(item);
 
@@ -95,7 +95,7 @@ fn part2(r: *Reader, alloc: Allocator) !void {
 
     var grand_total: u64 = 0;
 
-    var rands: ArrayList(u64) = try .initCapacity(alloc, 0);
+    var rands: ArrayList(u64) = .init(alloc);
     defer rands.deinit();
     defer assert(rands.items.len == 0);
 
@@ -151,7 +151,7 @@ fn part2(r: *Reader, alloc: Allocator) !void {
 }
 
 fn parseOperand(r: *Reader, alloc: Allocator) ![]u64 {
-    var digits: ArrayList(u64) = try .initCapacity(alloc, 0);
+    var digits: ArrayList(u64) = .init(alloc);
     defer digits.deinit();
 
     while (true) {
@@ -164,7 +164,7 @@ fn parseOperand(r: *Reader, alloc: Allocator) ![]u64 {
 }
 
 fn parseOperator(r: *Reader, alloc: Allocator) ![]Op {
-    var ops: ArrayList(Op) = try .initCapacity(alloc, 0);
+    var ops: ArrayList(Op) = .init(alloc);
     defer ops.deinit();
 
     while (true) {
