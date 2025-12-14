@@ -10,6 +10,7 @@ const sort = std.sort;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
+const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 const Reader = std.io.Reader;
 
 const Face = enum(u1) { L, R };
@@ -355,7 +356,7 @@ pub fn main() !void {
     const stdin = &reader.interface;
 
     var buf: [4 * 1024 * 1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var fba: FixedBufferAllocator = .init(&buf);
     const alloc = fba.allocator();
 
     var pts: ArrayList(Point) = .{};
