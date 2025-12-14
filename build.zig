@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
 
     const step_tests = b.step("test", "Run tests");
 
-    for (1..9) |i| {
+    for (1..10) |i| {
         const name = std.fmt.allocPrint(b.allocator, "day{d:02}", .{i}) catch unreachable;
         const file = std.fmt.allocPrint(b.allocator, "src/day/{d:02}.zig", .{i}) catch unreachable;
         const desc = std.fmt.allocPrint(b.allocator, "Run solution for Day {d}", .{i}) catch unreachable;
