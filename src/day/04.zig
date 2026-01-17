@@ -4,7 +4,7 @@ const lib = @import("libadvent");
 const grid = lib.grid;
 
 const File = std.fs.File;
-const Grid = grid.Grid;
+const Grid = lib.grid.Grid;
 
 const DELTAS = [_][2]isize{
     .{ -1, -1 },
