@@ -253,7 +253,7 @@ const Shape = struct {
 
     /// Area of the shape overlapping the given rectangle.
     fn overlap(self: Shape, rect: Rect) u64 {
-        return if (self.root) |node| nodeOverlap(node, false, rect) else 0;
+        return nodeOverlap(self.root, false, rect);
     }
 };
 
