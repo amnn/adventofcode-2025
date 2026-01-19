@@ -116,9 +116,72 @@ const Machine = struct {
             m.ptr(self.buttons.len, j).?.* = @intCast(jolt);
         }
 
-        std.debug.print("Before:\n{f}\n", .{m});
         const free = try m.gaussianElimination(a);
+        defer a.free(free);
+
         std.debug.print("{f}\nFree: {any}\n\n", .{ m, free });
+
+        const Bound = struct { lo: i64, hi: i64 };
+        const bounds = try a.alloc(Bound, m.width() - 1);
+        defer a.free(bounds);
+
+        for (bounds) |*b| b.* = .{ .lo = 0, .hi = math.maxInt(i64) };
+
+        // Successively tighten each variable's bounds, relative to the current
+        // bounds for other variables, until they all converge on a fixed point.
+        var tighter = true;
+        while (tighter) {
+            tighter = false;
+            const b = m.width() - 1;
+            for (0..b) |v| {
+                for (0..m.height()) |r| {
+                    const denom = m.get(v, r).?;
+                    if (denom == 0) continue;
+
+                    // Substitute existing bounds into the equation for row r
+                    // rearranged for variable v:
+                    //
+                    //   x[v] = (b[r] - Σ {i != v} m[i, r] * x[i]) / m[v, r]
+                    //
+                    // to find new bounds for x[v].
+                    var lo = m.get(b, r).?;
+                    var hi = m.get(b, r).?;
+                    for (0..b) |i| {
+                        if (i == r) continue;
+                        const coeff = m.get(i, r).?;
+                        if (coeff == 0) continue;
+
+                        if ((coeff < 0) != (denom < 0)) {
+                            lo = satAdd(lo, -coeff *| bounds[i].lo);
+                            hi = satAdd(hi, -coeff *| bounds[i].hi);
+                        } else {
+                            lo = satAdd(lo, -coeff *| bounds[i].hi);
+                            hi = satAdd(hi, -coeff *| bounds[i].lo);
+                        }
+                    }
+
+                    lo = math.clamp(try satDivFloor(lo, denom), bounds[v].lo, bounds[v].hi);
+                    hi = math.clamp(try satDivCeil(hi, denom), bounds[v].lo, bounds[v].hi);
+
+                    tighter |= bounds[v].lo < lo;
+                    tighter |= hi < bounds[v].hi;
+
+                    bounds[v].lo = lo;
+                    bounds[v].hi = hi;
+                }
+            }
+        }
+
+        std.debug.print("Bounds:\n", .{});
+        for (bounds, 0..) |b, i| {
+            std.debug.print("  {} <= v{} <= {}\n", .{ b.lo, i, b.hi });
+        }
+        std.debug.print("\n", .{});
+
+        const presses = try a.alloc(u64, m.width() - 1);
+        defer a.free(presses);
+        for (presses) |*p| p.* = 0;
+
         return 0;
     }
 };
@@ -146,4 +209,43 @@ pub fn main() !void {
 
     std.debug.print("Part 1: {d}\n", .{part1});
     std.debug.print("Part 2: {d}\n", .{part2});
+}
+
+/// Saturated addition -- like `+|`, but treats `math.maxInt(i64)` and
+/// `math.minInt(i64)` as infinities. Biases towards positive infinity (e.g.
+/// inf + -inf = inf).
+fn satAdd(x: i64, y: i64) i64 {
+    const MAX = math.maxInt(i64);
+    const MIN = math.minInt(i64);
+
+    if (x == MAX or y == MAX) return MAX;
+    if (x == MIN or y == MIN) return MIN;
+
+    return x +| y;
+}
+
+/// Saturated floored division -- like `math.divFloor`, but treats
+/// `math.maxInt(i64)` and `math.minInt(i64)` as infinities.
+fn satDivFloor(numer: i64, denom: i64) !i64 {
+    const MAX = math.maxInt(i64);
+    const MIN = math.minInt(i64);
+
+    if (numer == MAX and denom > 0) return MAX;
+    if (numer == MIN and denom < 0) return MAX;
+    if (numer == MAX and denom < 0) return MIN;
+    if (numer == MIN and denom > 0) return MIN;
+    return math.divFloor(i64, numer, denom);
+}
+
+/// Saturated ceilinged division -- like `math.divCeil`, but treats
+/// `math.maxInt(i64)` and `math.minInt(i64)` as infinities.
+fn satDivCeil(numer: i64, denom: i64) !i64 {
+    const MAX = math.maxInt(i64);
+    const MIN = math.minInt(i64);
+
+    if (numer == MAX and denom > 0) return MAX;
+    if (numer == MIN and denom < 0) return MIN;
+    if (numer == MAX and denom < 0) return MIN;
+    if (numer == MIN and denom > 0) return MAX;
+    return math.divCeil(i64, numer, denom);
 }
