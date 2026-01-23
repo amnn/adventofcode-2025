@@ -116,73 +116,165 @@ const Machine = struct {
             m.ptr(self.buttons.len, j).?.* = @intCast(jolt);
         }
 
+        const bounds = try a.alloc(Bound, m.width() - 1);
+        defer a.free(bounds);
+        for (bounds) |*b| b.* = .{};
+
+        // Discover bounds for each variable by tightening them until a fixed
+        // point is reached. Do this before performing gaussian elimination
+        // because at this stage, we know that all coefficients are positive
+        // (after gaussian elimination if every row contains a mix of positive
+        // and negative coefficients, we will not be able to make a first step
+        // towards tightening bounds).
+        while (try Bound.tighten(bounds, m)) {}
+
         const free = try m.gaussianElimination(a);
         defer a.free(free);
 
-        std.debug.print("{f}\nFree: {any}\n\n", .{ m, free });
+        // Tighten bounds again after gaussian elimination, as it could have
+        // surfaced some more constraints.
+        while (try Bound.tighten(bounds, m)) {}
 
-        const Bound = struct { lo: i64, hi: i64 };
-        const bounds = try a.alloc(Bound, m.width() - 1);
-        defer a.free(bounds);
+        // Now, enumerate all possible assignments of free variables within their
+        // bounds, and solve the remaining variables accordingly.
+        const presses = try a.alloc(i64, free.len);
+        defer a.free(presses);
 
-        for (bounds) |*b| b.* = .{ .lo = 0, .hi = math.maxInt(i64) };
+        const Enumeration = struct {
+            free: []usize,
+            presses: []i64,
+            bounds: []const Bound,
+            system: Matrix,
+            min: i64 = math.maxInt(i64),
 
-        // Successively tighten each variable's bounds, relative to the current
-        // bounds for other variables, until they all converge on a fixed point.
-        var tighter = true;
-        while (tighter) {
-            tighter = false;
-            const b = m.width() - 1;
-            for (0..b) |v| {
-                for (0..m.height()) |r| {
-                    const denom = m.get(v, r).?;
-                    if (denom == 0) continue;
+            const Self = @This();
 
-                    // Substitute existing bounds into the equation for row r
-                    // rearranged for variable v:
-                    //
-                    //   x[v] = (b[r] - Σ {i != v} m[i, r] * x[i]) / m[v, r]
-                    //
-                    // to find new bounds for x[v].
-                    var lo = m.get(b, r).?;
-                    var hi = m.get(b, r).?;
-                    for (0..b) |i| {
-                        if (i == r) continue;
-                        const coeff = m.get(i, r).?;
-                        if (coeff == 0) continue;
+            fn enumerate(self_: *Self, i: usize) void {
+                if (i >= self_.free.len) {
+                    self_.min = @min(self_.min, self_.solve());
+                    return;
+                }
 
-                        if ((coeff < 0) != (denom < 0)) {
-                            lo = satAdd(lo, -coeff *| bounds[i].lo);
-                            hi = satAdd(hi, -coeff *| bounds[i].hi);
-                        } else {
-                            lo = satAdd(lo, -coeff *| bounds[i].hi);
-                            hi = satAdd(hi, -coeff *| bounds[i].lo);
-                        }
+                const v = self_.free[i];
+                const b = self_.bounds[v];
+                var p = b.lo;
+                while (p <= b.hi) : (p += 1) {
+                    self_.presses[i] = p;
+                    self_.enumerate(i + 1);
+                }
+            }
+
+            fn solve(self_: *const Self) i64 {
+                const b = self_.system.width() - 1;
+                const lim = @min(b, self_.system.height());
+
+                var total: i64 = 0;
+                for (self_.presses) |p| total += p;
+
+                for (0..lim) |v| {
+                    const denom = self_.system.get(v, v).?;
+
+                    var soln = self_.system.get(b, v).?;
+                    for (self_.free, self_.presses) |f, p| {
+                        const coeff = self_.system.get(f, v).?;
+                        soln -= coeff * p;
                     }
 
-                    lo = math.clamp(try satDivFloor(lo, denom), bounds[v].lo, bounds[v].hi);
-                    hi = math.clamp(try satDivCeil(hi, denom), bounds[v].lo, bounds[v].hi);
+                    // If the denominator is zero, this row consistents only of
+                    // free variables, so the difference after substituting all
+                    // free variables should be zero.
+                    if (denom == 0) if (soln != 0) {
+                        return math.maxInt(i64);
+                    } else {
+                        continue;
+                    };
 
-                    tighter |= bounds[v].lo < lo;
-                    tighter |= hi < bounds[v].hi;
+                    // If the solution is not integral, then this is not a
+                    // valid solution.
+                    soln = math.divExact(i64, soln, denom) catch {
+                        return math.maxInt(i64);
+                    };
 
-                    bounds[v].lo = lo;
-                    bounds[v].hi = hi;
+                    // If the current assignment of free variables results in a
+                    // negative number of button presses for any other
+                    // variable, then we know this solution is not valid.
+                    if (soln < 0) {
+                        return math.maxInt(i64);
+                    }
+
+                    total += soln;
                 }
+
+                return total;
+            }
+        };
+
+        var enum_: Enumeration = .{
+            .free = free,
+            .presses = presses,
+            .bounds = bounds,
+            .system = m,
+        };
+
+        enum_.enumerate(0);
+        return @intCast(enum_.min);
+    }
+};
+
+const Bound = struct {
+    lo: i64 = 0,
+    hi: i64 = math.maxInt(i64),
+
+    const Self = @This();
+
+    fn tighten(bounds: []Bound, m: Matrix) !bool {
+        var tighter = false;
+
+        const b = m.width() - 1;
+        for (0..b) |v| {
+            for (0..m.height()) |r| {
+                const denom = m.get(v, r).?;
+                if (denom == 0) continue;
+
+                // Substitute existing bounds into the equation for row r
+                // rearranged for variable v:
+                //
+                //   x[v] = (b[r] - Σ {i != v} m[i, r] * x[i]) / m[v, r]
+                //
+                // to find new bounds for x[v].
+                var lo = m.get(b, r).?;
+                var hi = m.get(b, r).?;
+
+                for (0..b) |i| {
+                    if (i == v) continue;
+                    const coeff = -m.get(i, r).?;
+                    if (coeff == 0) continue;
+
+                    if (coeff > 0) {
+                        lo = satAdd(lo, coeff *| bounds[i].lo);
+                        hi = satAdd(hi, coeff *| bounds[i].hi);
+                    } else {
+                        lo = satAdd(lo, coeff *| bounds[i].hi);
+                        hi = satAdd(hi, coeff *| bounds[i].lo);
+                    }
+                }
+
+                if (denom < 0) {
+                    std.mem.swap(i64, &lo, &hi);
+                }
+
+                lo = math.clamp(try satDivFloor(lo, denom), bounds[v].lo, bounds[v].hi);
+                hi = math.clamp(try satDivCeil(hi, denom), bounds[v].lo, bounds[v].hi);
+
+                tighter |= bounds[v].lo < lo;
+                tighter |= hi < bounds[v].hi;
+
+                bounds[v].lo = lo;
+                bounds[v].hi = hi;
             }
         }
 
-        std.debug.print("Bounds:\n", .{});
-        for (bounds, 0..) |b, i| {
-            std.debug.print("  {} <= v{} <= {}\n", .{ b.lo, i, b.hi });
-        }
-        std.debug.print("\n", .{});
-
-        const presses = try a.alloc(u64, m.width() - 1);
-        defer a.free(presses);
-        for (presses) |*p| p.* = 0;
-
-        return 0;
+        return tighter;
     }
 };
 
@@ -211,41 +303,45 @@ pub fn main() !void {
     std.debug.print("Part 2: {d}\n", .{part2});
 }
 
-/// Saturated addition -- like `+|`, but treats `math.maxInt(i64)` and
-/// `math.minInt(i64)` as infinities. Biases towards positive infinity (e.g.
-/// inf + -inf = inf).
+/// Saturated addition -- like `+|`, but treats values greater than or equal to
+/// `math.maxInt(i64)` as positive infinity, and values less than or equal to
+/// `math.minInt(i64) + 1` as negative infinity.
+///
+/// Biases towards positive infinity (e.g. inf + -inf = inf).
 fn satAdd(x: i64, y: i64) i64 {
+    const MIN = math.minInt(i64) + 1;
     const MAX = math.maxInt(i64);
-    const MIN = math.minInt(i64);
 
-    if (x == MAX or y == MAX) return MAX;
-    if (x == MIN or y == MIN) return MIN;
+    if (x >= MAX or y >= MAX) return MAX;
+    if (x <= MIN or y <= MIN) return MIN;
 
     return x +| y;
 }
 
-/// Saturated floored division -- like `math.divFloor`, but treats
-/// `math.maxInt(i64)` and `math.minInt(i64)` as infinities.
+/// Saturated floored division -- like `math.divFloor`, but treats values
+/// greater than or equal to `math.maxInt(i64)` as positive infinity and values
+/// less than or equal to `math.minInt(i64) + 1` as negative infinity.
 fn satDivFloor(numer: i64, denom: i64) !i64 {
+    const MIN = math.minInt(i64) + 1;
     const MAX = math.maxInt(i64);
-    const MIN = math.minInt(i64);
 
-    if (numer == MAX and denom > 0) return MAX;
-    if (numer == MIN and denom < 0) return MAX;
-    if (numer == MAX and denom < 0) return MIN;
-    if (numer == MIN and denom > 0) return MIN;
+    if (numer >= MAX and denom > 0) return MAX;
+    if (numer <= MIN and denom < 0) return MAX;
+    if (numer >= MAX and denom < 0) return MIN;
+    if (numer <= MIN and denom > 0) return MIN;
     return math.divFloor(i64, numer, denom);
 }
 
-/// Saturated ceilinged division -- like `math.divCeil`, but treats
-/// `math.maxInt(i64)` and `math.minInt(i64)` as infinities.
+/// Saturated ceiled division -- like `math.divCeil`, but treats values
+/// greater than or equal to `math.maxInt(i64)` as positive infinity and values
+/// less than or equal to `math.minInt(i64) + 1` as negative infinity.
 fn satDivCeil(numer: i64, denom: i64) !i64 {
+    const MIN = math.minInt(i64) + 1;
     const MAX = math.maxInt(i64);
-    const MIN = math.minInt(i64);
 
-    if (numer == MAX and denom > 0) return MAX;
-    if (numer == MIN and denom < 0) return MIN;
-    if (numer == MAX and denom < 0) return MIN;
-    if (numer == MIN and denom > 0) return MAX;
+    if (numer >= MAX and denom > 0) return MAX;
+    if (numer <= MIN and denom < 0) return MAX;
+    if (numer >= MAX and denom < 0) return MIN;
+    if (numer <= MIN and denom > 0) return MIN;
     return math.divCeil(i64, numer, denom);
 }
