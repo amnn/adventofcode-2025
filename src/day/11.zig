@@ -13,9 +13,6 @@ const Reader = std.io.Reader;
 const ID = struct {
     id: u16,
 
-    const OUT: ID = .str("out");
-    const YOU: ID = .str("you");
-
     fn str(s: *const [3]u8) ID {
         var id: u16 = 0;
         for (s) |b| id = id * 26 + @as(u16, b - 'a');
@@ -61,7 +58,7 @@ const Graph = struct {
         return node.items;
     }
 
-    fn topological(self: *const Graph, a: Allocator) ![]ID {
+    fn topological(self: *const Graph, a: Allocator, from: ID) ![]ID {
         const State = enum { doing, done };
 
         var visit: AutoHashMapUnmanaged(ID, State) = .empty;
@@ -99,8 +96,34 @@ const Graph = struct {
             .graph = self,
         };
 
-        try t.traverse(a, ID.YOU);
+        try t.traverse(a, from);
         return order.toOwnedSlice(a);
+    }
+
+    fn allPaths(self: *const Graph, a: Allocator, from: ID, to: ID) !usize {
+        const order = try self.topological(a, from);
+        defer a.free(order);
+
+        var paths: Paths = .empty;
+        defer paths.deinit(a);
+
+        var found: bool = false;
+        for (order) |id| {
+            if (id.id == to.id) {
+                found = true;
+                try paths.put(a, id, 1);
+            } else if (!found) {
+                try paths.put(a, id, 0);
+            } else {
+                var total: usize = 0;
+                if (self.neighbours(id)) |nbrs| for (nbrs) |nbr| {
+                    total += paths.get(nbr) orelse continue;
+                };
+                try paths.put(a, id, total);
+            }
+        }
+
+        return paths.get(from) orelse 0;
     }
 
     fn deinit(self: *Graph, a: Allocator) void {
@@ -124,27 +147,17 @@ pub fn main() !void {
     var graph: Graph = try .parse(stdin, alloc);
     defer graph.deinit(alloc);
 
-    const order = try graph.topological(alloc);
-    defer alloc.free(order);
+    const you_to_out = try graph.allPaths(alloc, .str("you"), .str("out"));
+    const svr_to_fft = try graph.allPaths(alloc, .str("svr"), .str("fft"));
+    const svr_to_dac = try graph.allPaths(alloc, .str("svr"), .str("dac"));
+    const fft_to_dac = try graph.allPaths(alloc, .str("fft"), .str("dac"));
+    const dac_to_fft = try graph.allPaths(alloc, .str("dac"), .str("fft"));
+    const fft_to_out = try graph.allPaths(alloc, .str("fft"), .str("out"));
+    const dac_to_out = try graph.allPaths(alloc, .str("dac"), .str("out"));
 
-    var paths: Paths = .empty;
-    defer paths.deinit(alloc);
-
-    var found: bool = false;
-    for (order) |id| {
-        if (id.id == ID.OUT.id) {
-            found = true;
-            try paths.put(alloc, id, 1);
-        } else if (!found) {
-            try paths.put(alloc, id, 0);
-        } else {
-            var total: usize = 0;
-            if (graph.neighbours(id)) |nbrs| for (nbrs) |nbr| {
-                total += paths.get(nbr) orelse continue;
-            };
-            try paths.put(alloc, id, total);
-        }
-    }
-
-    std.debug.print("Part 1: {}\n", .{paths.get(ID.YOU) orelse 0});
+    std.debug.print("Part 1: {}\n", .{you_to_out});
+    std.debug.print("Part 2: {}\n", .{
+        svr_to_fft * fft_to_dac * dac_to_out +
+            svr_to_dac * dac_to_fft * fft_to_out,
+    });
 }
